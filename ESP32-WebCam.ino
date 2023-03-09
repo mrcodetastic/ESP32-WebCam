@@ -125,11 +125,11 @@
 #define FLASH_LED 4
 
 httpd_handle_t stream_httpd = NULL;
-unsigned long previousMillis = 0;   // last time image was sent
+unsigned long lastCaptureMillis = 0;   // last time image was sent
 unsigned long lastStreamMillis = 0;   // last time image was sent
 
  // dont_send is used for capturing without uploading to remote server, used for calibration of camera
-void sendPhoto(bool dont_send = false);
+void uploadPhoto();
 
 WiFiClient client;
 
@@ -181,7 +181,7 @@ char * part_buf[64];
   }
 
   while(true){
-    lastStreamMillis = millis();
+
     fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("Camera capture failed");
@@ -224,8 +224,9 @@ char * part_buf[64];
     if(res != ESP_OK){
       break;
     }
-    //Serial.printf("MJPG: %uB\n",(uint32_t)(_jpg_buf_len));
-  //  telnet.println("Stream active...");
+    lastStreamMillis = millis();
+    Serial.printf("MJPG frame: %u bytes\n",(uint32_t)(_jpg_buf_len));
+
   }
   return res;
 }
@@ -277,55 +278,31 @@ static esp_err_t camera_warmer()
 {
   camera_fb_t * fb = NULL;
   esp_err_t res = ESP_OK;
-  size_t _jpg_buf_len = 0;
-  uint8_t * _jpg_buf = NULL;
 
   Serial.println("Warming up camera for photo shoot...");
 
   // Give the camera four seconds or so.
-  unsigned long end_time = millis() + 4000;
-  while(millis() < end_time)
+  for (int i = 0; i < 3; i++)
   {
     fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("Camera capture failed");
       res = ESP_FAIL;
     } else {
-      if(fb->width > 400){
-        if(fb->format != PIXFORMAT_JPEG){
-          bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
-          esp_camera_fb_return(fb);
-          fb = NULL;
-          if(!jpeg_converted){
-            Serial.println("JPEG compression failed");
-            res = ESP_FAIL;
-          }
-        } else {
-          _jpg_buf_len = fb->len;
-          _jpg_buf = fb->buf;
-        }
-      }
-    }
-
-    if(fb){
       esp_camera_fb_return(fb);
       fb = NULL;
-      _jpg_buf = NULL;
-    } else if(_jpg_buf){
-
-      free(_jpg_buf);
-      _jpg_buf = NULL;
     }
+    delay(2000);
+
     if(res != ESP_OK){
       break;
     }
-    //Serial.printf("MJPG: %uB\n",(uint32_t)(_jpg_buf_len));
   }
   return res;
 }
 
 
-void sendPhoto(bool dont_send) {
+void uploadPhoto() {
   String getAll;
   String getBody;
   long lTime;
@@ -375,14 +352,6 @@ void sendPhoto(bool dont_send) {
 
     jpeg.close();
   }
-
-  // Just to test out the pipes of the camera and calibrate it first.
-  if ( dont_send )
-  {
-    Serial.println("Performed capture without sending.");
-    return;
-  }
-
 
   if (photoLightAverage < photoLightThreshold  )
   {
@@ -565,7 +534,7 @@ void setup() {
   startCameraServer();  
     
   delay(2000);
-  sendPhoto();
+  uploadPhoto();
 
   digitalWrite(FLASH_LED, HIGH);
   delay(500);
@@ -578,11 +547,11 @@ void loop() {
 
   telnet.loop();
   unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= (60*1000*timerInterval)) {
+  if (currentMillis - lastCaptureMillis >= (60*1000*timerInterval)) {
     digitalWrite(RED_LED, LOW);    
     delay(2000);
-    sendPhoto();
+    uploadPhoto();
     digitalWrite(RED_LED, HIGH);    
-    previousMillis = currentMillis;
+    lastCaptureMillis = currentMillis;
   }
 }

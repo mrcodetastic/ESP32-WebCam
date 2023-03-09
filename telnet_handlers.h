@@ -22,16 +22,19 @@ void onTelnetInput(String str) {
    else if (str == "capture")
    {
      telnet.println("Capturing photo for upload.");
-     sendPhoto();
+     uploadPhoto();
    }
    else if (str == "status")
-   {
-      if ( (millis() - lastStreamMillis) < 5000 ) 
-      {
-       telnet.println("Stream is active. Somebody is streaming.");
-       } else { telnet.println("Streaming NOT currently being used."); }
+   {  
+      unsigned int lastStreamMins =  ((millis() - lastStreamMillis)/1000)/60;
+      telnet.print("Last streaming occured "); telnet.print(String(lastStreamMins)); telnet.println(" minutes ago.");
 
-       unsigned long lastCapture = millis() - previousMillis;
+      if ( (millis() - lastStreamMillis) < 6000 )
+      {
+        telnet.println("Somebody is probably streaming right now.");
+      }
+
+       unsigned long lastCapture = millis() - lastCaptureMillis;
 
        telnet.print("Last photo capture upload taken ");
        telnet.print(String((lastCapture/1000/60)));
