@@ -128,6 +128,8 @@ httpd_handle_t stream_httpd = NULL;
 unsigned long lastCaptureMillis = 0;   // last time image was sent
 unsigned long lastStreamMillis = 0;   // last time image was sent
 
+volatile bool pause_stream = false;
+
  // dont_send is used for capturing without uploading to remote server, used for calibration of camera
 void uploadPhoto();
 
@@ -159,28 +161,34 @@ void blinkRedLED_WiFiConnected(void * parameter){
     
   }
 }
-
-
 // HTTP Server
 static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char* _STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 
+
 static esp_err_t stream_handler(httpd_req_t *req)
 {
 
-camera_fb_t * fb = NULL;
-esp_err_t res = ESP_OK;
-size_t _jpg_buf_len = 0;
-uint8_t * _jpg_buf = NULL;
-char * part_buf[64];
+  camera_fb_t * fb = NULL;
+  esp_err_t res = ESP_OK;
+  size_t _jpg_buf_len = 0;
+  uint8_t * _jpg_buf = NULL;
+  char * part_buf[64];
 
   res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
   if(res != ESP_OK){
     return res;
   }
 
-  while(true){
+  while(true)
+  {   
+
+    if (pause_stream == true)
+    {
+      delay(10);
+      continue;
+    }
 
     fb = esp_camera_fb_get();
     if (!fb) {
@@ -282,27 +290,25 @@ static esp_err_t camera_warmer()
   Serial.println("Warming up camera for photo shoot...");
 
   // Give the camera four seconds or so.
-  for (int i = 0; i < 3; i++)
-  {
-    fb = esp_camera_fb_get();
-    if (!fb) {
-      Serial.println("Camera capture failed");
-      res = ESP_FAIL;
-    } else {
-      esp_camera_fb_return(fb);
-      fb = NULL;
-    }
-    delay(2000);
-
-    if(res != ESP_OK){
-      break;
-    }
+  delay(100);  
+  fb = esp_camera_fb_get();  
+  if (!fb) {
+    Serial.println("Camera capture failed");
+    res = ESP_FAIL;
+  } else {
+    esp_camera_fb_return(fb);
+    fb = NULL;
   }
+  delay(100);
+
   return res;
 }
 
 
 void uploadPhoto() {
+
+  pause_stream = true;
+
   String getAll;
   String getBody;
   long lTime;
@@ -311,7 +317,7 @@ void uploadPhoto() {
   camera_warmer();
   delay(1000);
 
-  telnet.println("Capturing timed photo...");  
+  //telnet.println("Capturing timed photo...");  
 
   // Capture image and save to framebuffer
   camera_fb_t * fb = NULL;
@@ -319,7 +325,7 @@ void uploadPhoto() {
   if(!fb) {
     Serial.println("Camera capture failed");
     delay(1000);
-    ESP.restart();
+    ESP.restart(); // Pretty punative here - reboot the entire devi
   }
 
   // Assess the image
@@ -355,8 +361,9 @@ void uploadPhoto() {
 
   if (photoLightAverage < photoLightThreshold  )
   {
-    Serial.println("Captured photo below brightness threshold. Skipping.");
-    return;
+      Serial.println("Captured photo below brightness threshold. Skipping.");
+      pause_stream = false;
+      return;
   }
  
   
@@ -394,7 +401,8 @@ void uploadPhoto() {
     Serial.println("Sent data to server.");
     
     esp_camera_fb_return(fb);
-    
+    pause_stream = false;
+
     int timoutTimer = 10000;
     long startTimer = millis();
     boolean state = false;
@@ -430,10 +438,11 @@ void uploadPhoto() {
   else {
     getBody = "Connection to " + serverName +  " failed.";
     Serial.println(getBody);
-    
     telnet.println(getBody); 
 
   }
+
+    pause_stream = false;
 
 }
 
@@ -492,6 +501,7 @@ void setup() {
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
+    ESP.restart();
     return;
   }
   // Wi-Fi connection
@@ -550,7 +560,9 @@ void loop() {
   if (currentMillis - lastCaptureMillis >= (60*1000*timerInterval)) {
     digitalWrite(RED_LED, LOW);    
     delay(2000);
+  
     uploadPhoto();
+  
     digitalWrite(RED_LED, HIGH);    
     lastCaptureMillis = currentMillis;
   }
