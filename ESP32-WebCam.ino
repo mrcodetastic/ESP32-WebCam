@@ -127,6 +127,7 @@
 httpd_handle_t stream_httpd = NULL;
 unsigned long lastCaptureMillis = 0;   // last time image was sent
 unsigned long lastStreamMillis = 0;   // last time image was sent
+unsigned long lastWiFiAliveLedMillis = 0;
 
 volatile bool pause_stream = false;
 
@@ -146,21 +147,35 @@ WiFiClient client;
 JPEGDEC jpeg;
 unsigned long photoLightAverage = 0;
 
+bool streaming_led_toggle = false;
+
 // Indicator
-void blinkRedLED_WiFiConnected(void * parameter){
+void blinkRedLED_Task(void * parameter){
   while(true) {
 
     // Flash when connected
-    if (WiFi.status() == WL_CONNECTED)
+    if ( millis() - lastWiFiAliveLedMillis > 3000)
     {
-      digitalWrite(RED_LED, LOW);
-      delay(200);
-      digitalWrite(RED_LED, HIGH);    
+      if (WiFi.status() == WL_CONNECTED)
+      {
+        digitalWrite(RED_LED, LOW);
+        delay(100);
+        digitalWrite(RED_LED, HIGH);    
+      }
+        lastWiFiAliveLedMillis = millis();
     }
-    delay(3000);   
-    
+
+    if (millis() - lastStreamMillis < 3000)
+    {
+        digitalWrite(RED_LED, LOW);
+    } else
+    {
+        digitalWrite(RED_LED, HIGH);        
+    }
+    delay(500);    
   }
 }
+
 // HTTP Server
 static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char* _STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
@@ -233,6 +248,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
       break;
     }
     lastStreamMillis = millis();
+
     Serial.printf("MJPG frame: %u bytes\n",(uint32_t)(_jpg_buf_len));
 
   }
@@ -362,6 +378,7 @@ void uploadPhoto() {
   if (photoLightAverage < photoLightThreshold  )
   {
       Serial.println("Captured photo below brightness threshold. Skipping.");
+      esp_camera_fb_return(fb);      
       pause_stream = false;
       return;
   }
@@ -526,7 +543,7 @@ void setup() {
   setupTelnet();  
   
   xTaskCreatePinnedToCore(
-  blinkRedLED_WiFiConnected,            /* Task function. */
+  blinkRedLED_Task,            /* Task function. */
   "blinkRedLED",                 /* name of task. */
   1000,                    /* Stack size of task */
   NULL,                     /* parameter of the task */
