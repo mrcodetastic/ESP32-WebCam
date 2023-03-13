@@ -132,7 +132,7 @@ unsigned long lastWiFiAliveLedMillis = 0;
 volatile bool pause_stream = false;
 
  // dont_send is used for capturing without uploading to remote server, used for calibration of camera
-void uploadPhoto();
+bool uploadPhoto();
 
 WiFiClient client;
 
@@ -321,7 +321,7 @@ static esp_err_t camera_warmer()
 }
 
 
-void uploadPhoto() {
+bool uploadPhoto() {
 
   pause_stream = true;
 
@@ -380,7 +380,7 @@ void uploadPhoto() {
       Serial.println("Captured photo below brightness threshold. Skipping.");
       esp_camera_fb_return(fb);      
       pause_stream = false;
-      return;
+      return false;
   }
  
   
@@ -460,6 +460,8 @@ void uploadPhoto() {
   }
 
     pause_stream = false;
+
+    return true;
 
 }
 

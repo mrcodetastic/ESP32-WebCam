@@ -22,7 +22,14 @@ void onTelnetInput(String str) {
    else if (str == "capture")
    {
      telnet.println("Capturing photo for upload.");
-     uploadPhoto();
+     if (uploadPhoto() == false)
+     {
+        telnet.println("Photo not captured or too dark.");
+     }
+     else
+     {
+        telnet.println("Success.");       
+     }
    }
    else if (str == "status")
    {  
