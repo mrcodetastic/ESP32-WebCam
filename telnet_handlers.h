@@ -47,7 +47,19 @@ void onTelnetInput(String str) {
        telnet.print(String((lastCapture/1000/60)));
        telnet.println(" minutes ago.");
 
-   }   
+   } 
+   else if (str == "uptime")
+   {
+      int64_t uptime = (esp_timer_get_time() - bootMicroSecond);
+
+      int uptime_days = uptime / 1000000 / 60 / 60 / 24;
+       telnet.print("Uptime: ");
+       telnet.print(String(uptime_days));
+       telnet.println(" days");
+
+   } 
+
+
   }
 
 

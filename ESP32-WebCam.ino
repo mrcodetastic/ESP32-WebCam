@@ -125,6 +125,8 @@
 #define FLASH_LED 4
 
 httpd_handle_t stream_httpd = NULL;
+
+int64_t bootMicroSecond = 0;
 unsigned long lastCaptureMillis = 0;   // last time image was sent
 unsigned long lastStreamMillis = 0;   // last time image was sent
 unsigned long lastWiFiAliveLedMillis = 0;
@@ -472,6 +474,8 @@ void setup() {
  
   Serial.begin(115200);
   Serial.setDebugOutput(false);
+
+  bootMicroSecond  = esp_timer_get_time();
 
   // Led
   // https://randomnerdtutorials.com/esp32-cam-ai-thinker-pinout/
