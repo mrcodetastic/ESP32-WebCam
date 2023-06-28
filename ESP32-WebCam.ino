@@ -544,12 +544,15 @@ void setup() {
     return;
   }
   // Wi-Fi connection
+
 // This part of code will try create static IP address
+/*
 #ifndef USE_DHCP
  if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
     Serial.println("STA Failed to configure");
   }
 #endif  
+*/
 
 /*
   WiFi.begin(ssid, password);
