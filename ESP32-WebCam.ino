@@ -16,6 +16,7 @@
 
 #include "esp_camera.h"
 #include <WiFi.h>
+#include <WebServer.h>
 #include "esp_timer.h"
 #include "img_converters.h"
 #include "Arduino.h"
@@ -26,11 +27,13 @@
 #include "esp_http_client.h"
 #include "config.h"
 
+//#include <ElegantOTA.h>
+#include <AutoConnect.h>
+
 // https://github.com/bitbank2/JPEGDEC
 // Used to decode the captured JPEG in PSRAM and do an assessment 
 // on a pixel by pixel level based on a scaled image.
 #include "JPEGDEC.h"
-
 
 #define PART_BOUNDARY "123456789000000000000987654321"
 
@@ -137,6 +140,10 @@ volatile bool pause_stream = false;
 bool uploadPhoto();
 
 WiFiClient client;
+WebServer           webServer(80);  
+AutoConnect         Portal(webServer);
+AutoConnectConfig   PortalConfig;
+
 
 #include "ESPTelnet.h"
 #include "telnet_handlers.h"
@@ -176,6 +183,15 @@ void blinkRedLED_Task(void * parameter){
     }
     delay(500);    
   }
+}
+
+
+// This gets called if captive portal is required.
+bool atDetect(IPAddress& softapIP) 
+{
+  //Serial.println("Captive portal started, SoftAP IP:" + softapIP.toString());
+  Serial.println(F("No WiFi Config. Captive Portal started."));
+  return true;
 }
 
 // HTTP Server
@@ -535,6 +551,7 @@ void setup() {
   }
 #endif  
 
+/*
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -542,7 +559,38 @@ void setup() {
   }
   Serial.println("");
   Serial.println("WiFi connected");
-  
+  */
+
+  Serial.println(F("Starting WiFi Connection Manager"));
+
+  PortalConfig.apid = "ESP32-CAM";
+  PortalConfig.title = "Configure WiFi";
+  PortalConfig.menuItems = AC_MENUITEM_CONFIGNEW;
+  PortalConfig.autoReconnect = true;
+  //PortalConfig.beginTimeout= 10000;
+  Portal.config(PortalConfig);
+
+ // Starts user web site included the AutoConnect portal.
+  Portal.onDetect(atDetect);
+  if (Portal.begin()) {
+    Serial.println("Started, IP:" + WiFi.localIP().toString());
+  }
+  else {
+    Serial.println(F("Something went wrong?"));
+    while (true) {    
+        delay(500);
+        Serial.print(".");
+      } // Wait.
+  }
+
+  // Establish a connection with an autoReconnect option.
+  if (Portal.begin()) {
+    Serial.println("WiFi connected: " + WiFi.localIP().toString());
+  }
+  Serial.println(F("Got past Portal.begin()"));
+
+
+
   // Wifi Connected checker
   TaskHandle_t Task1;
 
