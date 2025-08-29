@@ -6,6 +6,7 @@ void onTelnetConnect(String ip) {
   Serial.println(" connected");
   
   telnet.println("\nWelcome " + telnet.getIP());
+  telnet.println("Type 'help' for available commands");
   telnet.println("(Use ^] + q  to disconnect.)");
 }
 
@@ -19,6 +20,17 @@ void onTelnetInput(String str) {
     telnet.println("> disconnecting you...");
     telnet.disconnectClient();
   }
+   else if (str == "help")
+   {
+     telnet.println("Available commands:");
+     telnet.println("  ping      - Test connection");
+     telnet.println("  capture   - Take and upload a photo");
+     telnet.println("  status    - Show camera status");
+     telnet.println("  wifi      - Show WiFi connection status");
+     telnet.println("  reconnect - Force WiFi reconnection");
+     telnet.println("  uptime    - Show device uptime");
+     telnet.println("  bye       - Disconnect from telnet");
+   }
    else if (str == "capture")
    {
      telnet.println("Capturing photo for upload.");
@@ -47,6 +59,41 @@ void onTelnetInput(String str) {
        telnet.print(String((lastCapture/1000/60)));
        telnet.println(" minutes ago.");
 
+   } 
+   else if (str == "wifi")
+   {
+      telnet.print("WiFi Status: ");
+      switch(WiFi.status()) {
+        case WL_CONNECTED:
+          telnet.println("Connected");
+          telnet.println("IP Address: " + WiFi.localIP().toString());
+          telnet.println("Signal Strength (RSSI): " + String(WiFi.RSSI()) + " dBm");
+          break;
+        case WL_NO_SSID_AVAIL:
+          telnet.println("No SSID Available");
+          break;
+        case WL_CONNECT_FAILED:
+          telnet.println("Connection Failed");
+          break;
+        case WL_CONNECTION_LOST:
+          telnet.println("Connection Lost");
+          break;
+        case WL_DISCONNECTED:
+          telnet.println("Disconnected");
+          break;
+        default:
+          telnet.println("Unknown (" + String(WiFi.status()) + ")");
+      }
+      telnet.println("Reconnection attempts: " + String(wifiReconnectAttempts));
+   }
+   else if (str == "reconnect")
+   {
+     telnet.println("Forcing WiFi reconnection...");
+     if (reconnectWiFi()) {
+       telnet.println("Reconnection successful!");
+     } else {
+       telnet.println("Reconnection failed or in progress...");
+     }
    } 
    else if (str == "uptime")
    {

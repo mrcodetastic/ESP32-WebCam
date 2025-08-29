@@ -26,6 +26,7 @@
 #include "esp_http_server.h"
 #include "esp_http_client.h"
 #include "config.h"
+#include "esp_task_wdt.h" // Watchdog timer
 
 //#include <ElegantOTA.h>
 #include <AutoConnect.h>
@@ -133,11 +134,15 @@ int64_t bootMicroSecond = 0;
 unsigned long lastCaptureMillis = 0;   // last time image was sent
 unsigned long lastStreamMillis = 0;   // last time image was sent
 unsigned long lastWiFiAliveLedMillis = 0;
+unsigned long lastWiFiCheckMillis = 0;  // last time WiFi status was checked
+unsigned long wifiReconnectAttempts = 0;
 
 volatile bool pause_stream = false;
 
  // dont_send is used for capturing without uploading to remote server, used for calibration of camera
 bool uploadPhoto();
+bool checkWiFiConnection();
+bool reconnectWiFi();
 
 WiFiClient client;
 WebServer           webServer(80);  
@@ -158,11 +163,61 @@ unsigned long photoLightAverage = 0;
 
 bool streaming_led_toggle = false;
 
+// WiFi Connection Management Functions
+bool checkWiFiConnection() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return true;
+  }
+  
+  Serial.println("WiFi connection lost!");
+  telnet.println("WiFi connection lost - attempting reconnection...");
+  return false;
+}
+
+bool reconnectWiFi() {
+  static unsigned long lastReconnectAttempt = 0;
+  
+  // Avoid too frequent reconnection attempts
+  if (millis() - lastReconnectAttempt < wifiReconnectInterval) {
+    return false;
+  }
+  
+  lastReconnectAttempt = millis();
+  wifiReconnectAttempts++;
+  
+  Serial.printf("WiFi reconnection attempt #%lu\n", wifiReconnectAttempts);
+  telnet.printf("WiFi reconnection attempt #%lu\n", wifiReconnectAttempts);
+  
+  // Disconnect first
+  WiFi.disconnect();
+  delay(1000);
+  
+  // Try AutoConnect portal reconnection first
+  if (Portal.begin()) {
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("WiFi reconnected via AutoConnect: " + WiFi.localIP().toString());
+      telnet.println("WiFi reconnected via AutoConnect: " + WiFi.localIP().toString());
+      wifiReconnectAttempts = 0; // Reset counter on successful reconnection
+      return true;
+    }
+  }
+  
+  // If AutoConnect fails after several attempts, try a full restart
+  if (wifiReconnectAttempts >= maxReconnectAttempts) {
+    Serial.println("Multiple WiFi reconnection attempts failed. Restarting ESP32...");
+    telnet.println("Multiple WiFi reconnection attempts failed. Restarting ESP32...");
+    delay(2000);
+    ESP.restart();
+  }
+  
+  return false;
+}
+
 // Indicator
 void blinkRedLED_Task(void * parameter){
   while(true) {
 
-    // Flash when connected
+    // Flash when connected, solid when disconnected
     if ( millis() - lastWiFiAliveLedMillis > 3000)
     {
       if (WiFi.status() == WL_CONNECTED)
@@ -171,13 +226,19 @@ void blinkRedLED_Task(void * parameter){
         delay(100);
         digitalWrite(RED_LED, HIGH);    
       }
-        lastWiFiAliveLedMillis = millis();
+      else
+      {
+        // Solid red when WiFi disconnected
+        digitalWrite(RED_LED, LOW);
+      }
+      lastWiFiAliveLedMillis = millis();
     }
 
+    // Override LED state when streaming (blink faster)
     if (millis() - lastStreamMillis < 3000)
     {
         digitalWrite(RED_LED, LOW);
-    } else
+    } else if (WiFi.status() == WL_CONNECTED)
     {
         digitalWrite(RED_LED, HIGH);        
     }
@@ -341,6 +402,13 @@ static esp_err_t camera_warmer()
 
 bool uploadPhoto() {
 
+  // Check WiFi connection before attempting upload
+  if (!checkWiFiConnection()) {
+    Serial.println("WiFi not connected. Skipping photo upload.");
+    telnet.println("WiFi not connected. Skipping photo upload.");
+    return false;
+  }
+
   pause_stream = true;
 
   String getAll;
@@ -403,7 +471,17 @@ bool uploadPhoto() {
  
   
   Serial.println("Connecting to server: " + serverName);
-  client.setTimeout(25); // 15 seconds
+  
+  // Double-check WiFi connection before HTTP attempt
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi disconnected during upload preparation. Aborting upload.");
+    telnet.println("WiFi disconnected during upload preparation. Aborting upload.");
+    esp_camera_fb_return(fb);      
+    pause_stream = false;
+    return false;
+  }
+  
+  client.setTimeout(25); // 25 seconds timeout
   if (client.connect(serverName.c_str(), serverPort)) {
     Serial.println("Connection successful!");    
     String head = "--RandomNerdTutorials\r\nContent-Disposition: form-data; name=\"imageFile\"; filename=\"esp32-cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
@@ -423,13 +501,29 @@ bool uploadPhoto() {
     uint8_t *fbBuf = fb->buf;
     size_t fbLen = fb->len;
     for (size_t n=0; n<fbLen; n=n+1024) {
+      // Check WiFi connection during transmission
+      if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WiFi connection lost during photo upload!");
+        telnet.println("WiFi connection lost during photo upload!");
+        client.stop();
+        esp_camera_fb_return(fb);
+        pause_stream = false;
+        return false;
+      }
+      
       if (n+1024 < fbLen) {
-        client.write(fbBuf, 1024);
+        size_t written = client.write(fbBuf, 1024);
+        if (written != 1024) {
+          Serial.printf("Warning: Only wrote %d of 1024 bytes\n", written);
+        }
         fbBuf += 1024;
       }
       else if (fbLen%1024>0) {
         size_t remainder = fbLen%1024;
-        client.write(fbBuf, remainder);
+        size_t written = client.write(fbBuf, remainder);
+        if (written != remainder) {
+          Serial.printf("Warning: Only wrote %d of %d bytes\n", written, remainder);
+        }
       }
     }   
     client.print(tail);
@@ -490,6 +584,10 @@ void setup() {
  
   Serial.begin(115200);
   Serial.setDebugOutput(false);
+
+  // Initialize watchdog timer (60 seconds timeout)
+  esp_task_wdt_init(60, true);
+  esp_task_wdt_add(NULL);
 
   bootMicroSecond  = esp_timer_get_time();
 
@@ -629,15 +727,37 @@ void setup() {
 
 void loop() {
 
+  // Feed the watchdog timer
+  esp_task_wdt_reset();
+
   telnet.loop();
+  
   unsigned long currentMillis = millis();
+  
+  // Periodic WiFi connection check every 30 seconds
+  if (currentMillis - lastWiFiCheckMillis >= wifiCheckInterval) {
+    if (!checkWiFiConnection()) {
+      // Attempt to reconnect
+      reconnectWiFi();
+    }
+    lastWiFiCheckMillis = currentMillis;
+  }
+  
+  // Only attempt photo upload if WiFi is connected
   if (currentMillis - lastCaptureMillis >= (60*1000*timerInterval)) {
-    digitalWrite(RED_LED, LOW);    
-    delay(2000);
-  
-    uploadPhoto();
-  
-    digitalWrite(RED_LED, HIGH);    
-    lastCaptureMillis = currentMillis;
+    if (WiFi.status() == WL_CONNECTED) {
+      digitalWrite(RED_LED, LOW);    
+      delay(2000);
+    
+      uploadPhoto();
+    
+      digitalWrite(RED_LED, HIGH);    
+      lastCaptureMillis = currentMillis;
+    } else {
+      Serial.println("Skipping scheduled photo upload - WiFi not connected");
+      telnet.println("Skipping scheduled photo upload - WiFi not connected");
+      // Still update the timer to avoid rapid retry attempts
+      lastCaptureMillis = currentMillis;
+    }
   }
 }
