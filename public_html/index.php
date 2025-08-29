@@ -100,7 +100,8 @@ header('Expires: '. gmdate('D, d M Y H:i:s \G\M\T', time() + (60 * 10))); // 10 
 </head>
 <body>
   <div class="header">
-    <h1>🎥 ESP32 WebCam Gallery</h1>
+    <h1>🎥 WebCam Gallery</h1>
+	<!--
     <div class="live-stream-container">
       <button class="stream-btn" onclick="showESP32Stream()">Show Live Stream</button>
     </div>
@@ -110,6 +111,7 @@ header('Expires: '. gmdate('D, d M Y H:i:s \G\M\T', time() + (60 * 10))); // 10 
     <div class="livestream-title">📡 Live Stream</div>
     <img class="livestream-image" src="<?php echo $stream_remote_img_src; ?>" onerror="this.onerror=null; this.src='stream_error.jpg'" alt="ESP32 Live Stream">
   </div>
+  -->
 
   <!-- Thumbnail Timeline -->
   <div class="thumbnail-timeline">
